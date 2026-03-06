@@ -1,0 +1,41 @@
+[
+  {
+    "name": "Dal Tadka (Low Carbon)",
+    "description": "A comforting, protein-rich yellow lentil dish.",
+    "ingredients": [
+      {"item_name": "toor dal", "quantity": 150, "unit": "grams"},
+      {"item_name": "ghee", "quantity": 1, "unit": "tbsp"},
+      {"item_name": "ginger", "quantity": 10, "unit": "grams"}
+    ],
+    "sustainability_score": 0.4,
+    "tags": ["vegan", "low-carbon", "staple"],
+    "instructions": ["Boil dal...", "Prepare tadka...", "Mix and serve."],
+    "prep_time_minutes": 30
+  },
+  {
+    "name": "Chicken Curry (Medium Carbon)",
+    "description": "A classic spiced chicken dish.",
+    "ingredients": [
+      {"item_name": "chicken breast", "quantity": 300, "unit": "grams"},
+      {"item_name": "onion", "quantity": 1, "unit": "count"},
+      {"item_name": "yogurt", "quantity": 50, "unit": "grams"}
+    ],
+    "sustainability_score": 2.1,
+    "tags": ["non-veg", "dinner", "curry"],
+    "instructions": ["Marinate chicken...", "Cook masala...", "Simmer chicken."],
+    "prep_time_minutes": 40
+  },
+  {
+    "name": "Aloo Gobi",
+    "description": "Simple dry curry of potatoes and cauliflower.",
+    "ingredients": [
+      {"item_name": "potatoes", "quantity": 300, "unit": "grams"},
+      {"item_name": "cauliflower", "quantity": 300, "unit": "grams"},
+      {"item_name": "turmeric", "quantity": 1, "unit": "tsp"}
+    ],
+    "sustainability_score": 0.55,
+    "tags": ["vegetarian", "low-carbon", "side-dish"],
+    "instructions": ["Cut vegetables...", "Saute spices...", "Cook until tender."],
+    "prep_time_minutes": 35
+  }
+]
