@@ -74,9 +74,13 @@ def login():
         if not user:
             return jsonify({"message": "User not found"}), 404
 
-        # Check hashed password
-        if bcrypt.checkpw(password.encode('utf-8'), user["password"]):
+        stored_password = user["password"]
 
+        # convert stored password to bytes if needed
+        if isinstance(stored_password, str):
+            stored_password = stored_password.encode("utf-8")
+
+        if bcrypt.checkpw(password.encode("utf-8"), stored_password):
             return jsonify({
                 "message": "Login successful",
                 "name": user.get("name", "User"),
@@ -86,7 +90,7 @@ def login():
         return jsonify({"message": "Invalid password"}), 401
 
     except Exception as e:
-        print("Login error:", e)
+        print("LOGIN ERROR:", e)
         return jsonify({"message": "Server error"}), 500
 # --- PROFILE MANAGEMENT ---
 @app.route('/update-profile', methods=['POST'])
