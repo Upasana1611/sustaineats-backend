@@ -7,6 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from bson.json_util import dumps
 import json
+import bcrypt
 
 load_dotenv() 
 
@@ -46,52 +47,51 @@ def health_check():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-    email = data.get('email')
-    if users_collection.find_one({"email": email}):
-        return jsonify({"message": "User already exists"}), 400
-    
-    users_collection.insert_one({
-        "name": data.get('name'),
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    # HASH PASSWORD
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+    user = {
+        "name": name,
         "email": email,
-        "password": data.get('password'), 
-        "role": 'admin' if 'admin' in email.lower() else 'user',
+        "password": hashed_password,
+        "role": "user",
         "inventory": [],
-        "age": None, "height": None, "weight": None, "bmi": None,
-        "healthCondition": "None", "dietPreference": "Veg" 
-    })
+        "age": None,
+        "height": None,
+        "weight": None,
+        "bmi": None,
+        "healthCondition": "None",
+        "dietPreference": "Veg"
+    }
+
+    users_collection.insert_one(user)
+
     return jsonify({"message": "User registered successfully"}), 201
 
 @app.route('/login', methods=['POST'])
 def login():
-    try:
-        data = request.get_json()
+    data = request.json
 
-        email = data.get("email")
-        password = data.get("password")
+    email = data.get("email")
+    password = data.get("password")
 
-        user = users_collection.find_one({"email": email})
+    user = users_collection.find_one({"email": email})
 
-        if not user:
-            return jsonify({"message": "User not found"}), 404
+    if not user:
+        return jsonify({"message": "User not found"}), 404
 
-        stored_password = user["password"]
+    if bcrypt.checkpw(password.encode('utf-8'), user["password"]):
+        return jsonify({
+            "name": user["name"],
+            "role": user.get("role", "user")
+        }), 200
 
-        # convert stored password to bytes if needed
-        if isinstance(stored_password, str):
-            stored_password = stored_password.encode("utf-8")
-
-        if bcrypt.checkpw(password.encode("utf-8"), stored_password):
-            return jsonify({
-                "message": "Login successful",
-                "name": user.get("name", "User"),
-                "role": user.get("role", "user")
-            })
-
-        return jsonify({"message": "Invalid password"}), 401
-
-    except Exception as e:
-        print("LOGIN ERROR:", e)
-        return jsonify({"message": "Server error"}), 500
+    return jsonify({"message": "Invalid password"}), 401
 # --- PROFILE MANAGEMENT ---
 @app.route('/update-profile', methods=['POST'])
 def update_profile():
