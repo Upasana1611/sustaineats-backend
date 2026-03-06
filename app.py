@@ -47,19 +47,22 @@ def health_check():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-
     name = data.get("name")
-    email = data.get("email")
+    email = data.get("email").lower().strip() # Normalize email
     password = data.get("password")
 
-    # HASH PASSWORD
+    # Check if user already exists
+    if users_collection.find_one({"email": email}):
+        return jsonify({"message": "User already exists"}), 400
+
+    # HASH PASSWORD - store as bytes
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
     user = {
         "name": name,
         "email": email,
         "password": hashed_password,
-        "role": "user",
+        "role": "user", # Default role
         "inventory": [],
         "age": None,
         "height": None,
@@ -70,28 +73,40 @@ def register():
     }
 
     users_collection.insert_one(user)
-
     return jsonify({"message": "User registered successfully"}), 201
 
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-
-    email = data.get("email")
+    email = data.get("email").lower().strip() # Normalize email
     password = data.get("password")
 
     user = users_collection.find_one({"email": email})
 
     if not user:
+        print(f"Login failed: User {email} not found")
         return jsonify({"message": "User not found"}), 404
 
-    if bcrypt.checkpw(password.encode('utf-8'), user["password"]):
-        return jsonify({
-            "name": user["name"],
-            "role": user.get("role", "user")
-        }), 200
+    try:
+        # Get stored password (handle string vs bytes conversion)
+        stored_password = user["password"]
+        if isinstance(stored_password, str):
+            stored_password = stored_password.encode('utf-8')
 
-    return jsonify({"message": "Invalid password"}), 401
+        # Check password
+        if bcrypt.checkpw(password.encode('utf-8'), stored_password):
+            return jsonify({
+                "name": user["name"],
+                "role": user.get("role", "user"),
+                "email": user["email"]
+            }), 200
+        else:
+            print(f"Login failed: Invalid password for {email}")
+            return jsonify({"message": "Invalid password"}), 401
+            
+    except Exception as e:
+        print(f"Login Error: {str(e)}")
+        return jsonify({"message": "Server error during login"}), 500
 # --- PROFILE MANAGEMENT ---
 @app.route('/update-profile', methods=['POST'])
 def update_profile():
