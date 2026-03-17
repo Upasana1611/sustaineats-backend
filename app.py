@@ -19,7 +19,8 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or os.getenv('JWT_SECRET') or
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # --- Configure Gemini API ---
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+API_KEY = os.getenv("GEMINI_API_KEY") or "AIzaSyCSBFJY9G6jwg9u20U4VKJrwYo6QHmu5eY"
+genai.configure(api_key=API_KEY)
 
 # --- Database Connection ---
 try:
