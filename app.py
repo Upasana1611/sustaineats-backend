@@ -14,8 +14,9 @@ import google.generativeai as genai
 load_dotenv() 
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'super-secret-default-key-1234'
-CORS(app)
+# Check for both SECRET_KEY and JWT_SECRET for backward compatibility with .env
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or os.getenv('JWT_SECRET') or 'super-secret-default-key-1234'
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # --- Configure Gemini API ---
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
