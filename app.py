@@ -289,6 +289,20 @@ def suggest(email, current_user):
 
     return jsonify(result[:10])
 
+@app.route('/feedback', methods=['POST'])
+@token_required
+def submit_feedback(current_user):
+    data = request.json
+    email = data.get("email") or current_user["email"]
+    feedback_collection.insert_one({
+        "email": email,
+        "recipe_name": data.get("recipe_name"),
+        "rating": data.get("rating"),
+        "comments": data.get("comments"),
+        "submitted_at": datetime.now().strftime("%Y-%m-%d")
+    })
+    return jsonify({"message": "Feedback received"}), 201
+
 @app.route('/generate-ai-recipe/<email>')
 @token_required
 def generate_ai_recipe(email, current_user):
@@ -309,25 +323,42 @@ def generate_ai_recipe(email, current_user):
 
 
 # ---------------- ADMIN ---------------- #
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        current_user = kwargs.get('current_user')
+        if not current_user or current_user.get("role") != "admin":
+            return jsonify({"message": "Admin access required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
 @app.route('/admin/users')
-def admin_get_users():
+@token_required
+@admin_required
+def admin_get_users(current_user):
     users = list(users_collection.find({"role": {"$ne": "admin"}}, {"_id": 0, "password": 0}))
     return jsonify(users)
 
 @app.route('/admin/delete-user/<email>', methods=['DELETE'])
-def admin_delete_user(email):
+@token_required
+@admin_required
+def admin_delete_user(email, current_user):
     result = users_collection.delete_one({"email": email})
     if result.deleted_count:
         return jsonify({"message": "User deleted successfully"}), 200
     return jsonify({"message": "User not found"}), 404
 
 @app.route('/admin/waste-reports')
-def admin_get_waste_reports():
+@token_required
+@admin_required
+def admin_get_waste_reports(current_user):
     reports = list(waste_collection.find({}, {"_id": 0}))
     return jsonify(reports)
 
 @app.route('/admin/stats')
-def admin_get_stats():
+@token_required
+@admin_required
+def admin_get_stats(current_user):
     total_users = users_collection.count_documents({"role": {"$ne": "admin"}})
     total_waste = waste_collection.count_documents({})
     total_recipes = recipes_collection.count_documents({})
