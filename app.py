@@ -64,6 +64,10 @@ def register():
         "password": hashed,
         "role": "user",
         "inventory": [],
+        "shoppingList": [],
+        "ecoScore": 0,
+        "badges": [],
+        "itemsSaved": 0,
         "age": None,
         "height": None,
         "weight": None,
@@ -120,6 +124,7 @@ def add_inventory():
         "name": data["name"],
         "quantity": data["quantity"],
         "expiry": data["expiry"],
+        "storage": data.get("storage", "Fridge"),
         "added_at": datetime.now().strftime("%Y-%m-%d")
     }
 
@@ -133,21 +138,81 @@ def add_inventory():
 @app.route('/inventory/delete', methods=['POST'])
 def delete_item():
     data = request.json
+    email = data["email"]
 
     if data.get("reason") == "waste":
         waste_collection.insert_one({
-            "email": data["email"],
+            "email": email,
             "item_name": data["name"],
             "quantity": data.get("quantity", 1),
             "waste_date": datetime.now().strftime("%Y-%m-%d")
         })
+        users_collection.update_one({"email": email}, {"$inc": {"ecoScore": -2}})
+    elif data.get("reason") == "consumed":
+        users_collection.update_one({"email": email}, {"$inc": {"ecoScore": 5, "itemsSaved": 1}})
 
     users_collection.update_one(
-        {"email": data["email"]},
+        {"email": email},
         {"$pull": {"inventory": {"name": data["name"]}}}
     )
+    
+    # Check badges
+    user = users_collection.find_one({"email": email})
+    if user:
+        new_badges = user.get("badges", [])
+        saved = user.get("itemsSaved", 0)
+        eco = user.get("ecoScore", 0)
+        
+        if saved >= 10 and "Zero-Waste Hero" not in new_badges:
+            new_badges.append("Zero-Waste Hero")
+        if eco >= 50 and "Pantry Master" not in new_badges:
+            new_badges.append("Pantry Master")
+            
+        if len(new_badges) > len(user.get("badges", [])):
+            users_collection.update_one({"email": email}, {"$set": {"badges": new_badges}})
 
     return jsonify({"message": "Removed"})
+
+# ---------------- SHOPPING LIST & STATS ---------------- #
+@app.route('/shopping-list/<email>')
+def get_shopping_list(email):
+    user = users_collection.find_one({"email": email})
+    return jsonify(user.get("shoppingList", []) if user else [])
+
+@app.route('/shopping-list', methods=['POST'])
+def update_shopping_list():
+    data = request.json
+    action = data.get("action")
+    items = data.get("items", [])
+    
+    if action == "add":
+        for item in items:
+            users_collection.update_one({"email": data["email"]}, {"$addToSet": {"shoppingList": item}})
+    elif action == "remove":
+        for item in items:
+            users_collection.update_one({"email": data["email"]}, {"$pull": {"shoppingList": item}})
+            
+    return jsonify({"message": "Shopping list updated"})
+
+@app.route('/user-stats/<email>')
+def get_user_stats(email):
+    user = users_collection.find_one({"email": email})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+        
+    wastes = list(waste_collection.find({"email": email}))
+    total_wasted = sum(int(w.get("quantity", 1)) for w in wastes)
+    cost_lost = total_wasted * 3.50
+    co2_emitted = total_wasted * 2.5
+    
+    return jsonify({
+        "ecoScore": user.get("ecoScore", 0),
+        "badges": user.get("badges", []),
+        "itemsSaved": user.get("itemsSaved", 0),
+        "moneyLost": f"${cost_lost:.2f}",
+        "co2Emitted": f"{co2_emitted:.1f} kg",
+        "totalWasted": total_wasted
+    })
 
 # ---------------- RECIPES ---------------- #
 @app.route('/suggest-recipes/<email>')
