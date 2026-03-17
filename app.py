@@ -6,13 +6,11 @@ import sys
 from datetime import datetime
 from dotenv import load_dotenv
 from bson.json_util import dumps
-import json
 import bcrypt
 
 load_dotenv() 
 
 app = Flask(__name__)
-# Adjust origins if your frontend port changes (Vite usually uses 5173)
 CORS(app)
 
 # --- Database Connection ---
@@ -25,243 +23,188 @@ try:
     users_collection = db["users"]
     recipes_collection = db["global_recipes"]
     feedback_collection = db["feedback"]
-    waste_collection = db["waste_logs"] # Collection for Admin Waste Reports
+    waste_collection = db["waste_logs"]
     
     client.admin.command('ping')
-    print(f"✅ Successfully connected to MongoDB: {db_name}")
+    print(f"✅ Connected to MongoDB: {db_name}")
 except Exception as e:
-    print(f"❌ CRITICAL: Could not connect to MongoDB. Reason: {e}")
+    print(f"❌ DB Connection Failed: {e}")
     sys.exit(1)
 
-# --- Helper Functions ---
+# ---------------- HELPER ---------------- #
 def calculate_nutrition(ingredients):
-    calories = len(ingredients) * 150 
-    protein = len(ingredients) * 5
-    return {"calories": calories, "protein": f"{protein}g", "fat": "Low"}
+    return {
+        "calories": len(ingredients) * 150,
+        "protein": f"{len(ingredients)*5}g",
+        "fat": "Low"
+    }
+
+def is_admin(email):
+    user = users_collection.find_one({"email": email})
+    return user and user.get("role") == "admin"
 
 @app.route('/')
 def health_check():
-    return jsonify({"status": "online", "database": db_name}), 200
+    return jsonify({"status": "online"}), 200
 
-# --- USER AUTH ---
-# --- USER AUTH ---
+# ---------------- AUTH ---------------- #
 @app.route('/register', methods=['POST'])
 def register():
-    try:
-        data = request.json
-        name = data.get("name")
-        email = data.get("email").lower().strip()
-        password = data.get("password")
+    data = request.json
+    email = data.get("email").lower().strip()
 
-        # Check if user already exists
-        if users_collection.find_one({"email": email}):
-            return jsonify({"message": "User already exists"}), 400
+    if users_collection.find_one({"email": email}):
+        return jsonify({"message": "User exists"}), 400
 
-        # HASH PASSWORD
-        hashed_bytes = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        # CONVERT TO STRING for safe storage in MongoDB Atlas
-        hashed_password_string = hashed_bytes.decode('utf-8')
+    hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
 
-        user = {
-            "name": name,
-            "email": email,
-            "password": hashed_password_string,
-            "role": "user",
-            "inventory": [],
-            "age": None,
-            "height": None,
-            "weight": None,
-            "bmi": None,
-            "healthCondition": "None",
-            "dietPreference": "Veg"
-        }
+    users_collection.insert_one({
+        "name": data["name"],
+        "email": email,
+        "password": hashed,
+        "role": "user",
+        "inventory": [],
+        "age": None,
+        "height": None,
+        "weight": None,
+        "bmi": None,
+        "healthCondition": "None",
+        "dietPreference": "Veg"
+    })
 
-        users_collection.insert_one(user)
-        print(f"✅ User {email} registered successfully")
-        return jsonify({"message": "User registered successfully"}), 201
-    except Exception as e:
-        print(f"❌ Register Error: {str(e)}")
-        return jsonify({"message": "Internal Server Error"}), 500
+    return jsonify({"message": "Registered"}), 201
 
 @app.route('/login', methods=['POST'])
 def login():
-    try:
-        data = request.json
-        email = data.get("email").lower().strip()
-        password = data.get("password")
+    data = request.json
+    email = data.get("email").lower().strip()
+    user = users_collection.find_one({"email": email})
 
-        user = users_collection.find_one({"email": email})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
 
-        if not user:
-            return jsonify({"message": "User not found"}), 404
+    if bcrypt.checkpw(data["password"].encode(), user["password"].encode()):
+        return jsonify({
+            "name": user["name"],
+            "email": user["email"],
+            "role": user.get("role", "user")
+        })
+    
+    return jsonify({"message": "Invalid password"}), 401
 
-        # Get stored password and ensure it's in bytes for comparison
-        stored_password = user["password"]
-        if isinstance(stored_password, str):
-            stored_password = stored_password.encode('utf-8')
-
-        # Check password
-        if bcrypt.checkpw(password.encode('utf-8'), stored_password):
-            return jsonify({
-                "name": user["name"],
-                "role": user.get("role", "user"),
-                "email": user["email"]
-            }), 200
-        else:
-            return jsonify({"message": "Invalid password"}), 401
-    except Exception as e:
-        print(f"❌ Login Error: {str(e)}")
-        return jsonify({"message": "Server error during login"}), 500
-# --- PROFILE MANAGEMENT ---
+# ---------------- PROFILE ---------------- #
 @app.route('/update-profile', methods=['POST'])
 def update_profile():
     data = request.json
-    email = data.get('email')
-    update_data = {
-        "age": data.get('age'),
-        "height": data.get('height'),
-        "weight": data.get('weight'),
-        "healthCondition": data.get('healthCondition'),
-        "dietPreference": data.get('dietPreference'),
-        "bmi": data.get('bmi')
-    }
-    users_collection.update_one({"email": email}, {"$set": update_data})
-    return jsonify({"message": "Profile updated successfully!"}), 200
+    users_collection.update_one(
+        {"email": data["email"]},
+        {"$set": data}
+    )
+    return jsonify({"message": "Updated"})
 
-@app.route('/profile/<email>', methods=['GET'])
-def get_profile(email):
+@app.route('/profile/<email>')
+def profile(email):
     user = users_collection.find_one({"email": email}, {"_id": 0, "password": 0})
-    if user:
-        return jsonify(user), 200
-    return jsonify({"message": "User not found"}), 404
+    return jsonify(user or {})
 
-# --- INVENTORY & WASTE TRACKING ---
-@app.route('/inventory/<email>', methods=['GET'])
+# ---------------- INVENTORY ---------------- #
+@app.route('/inventory/<email>')
 def get_inventory(email):
     user = users_collection.find_one({"email": email})
-    return jsonify(user.get('inventory', []) if user else []), 200
+    return jsonify(user.get("inventory", []) if user else [])
 
 @app.route('/inventory', methods=['POST'])
 def add_inventory():
     data = request.json
-    email = data.get('email')
-    new_item = {
-        "name": data.get('name'), 
-        "quantity": data.get('quantity'), 
-        "expiry": data.get('expiry'),
+    item = {
+        "name": data["name"],
+        "quantity": data["quantity"],
+        "expiry": data["expiry"],
         "added_at": datetime.now().strftime("%Y-%m-%d")
     }
-    users_collection.update_one({"email": email}, {"$push": {"inventory": new_item}})
-    return jsonify({"message": "Item added!"}), 201
+
+    users_collection.update_one(
+        {"email": data["email"]},
+        {"$push": {"inventory": item}}
+    )
+
+    return jsonify({"message": "Added"})
 
 @app.route('/inventory/delete', methods=['POST'])
 def delete_item():
     data = request.json
-    email = data.get('email')
-    item_name = data.get('name')
-    reason = data.get('reason', 'consumed') # 'waste' or 'consumed'
 
-    if reason == 'waste':
+    if data.get("reason") == "waste":
         waste_collection.insert_one({
-            "email": email,
-            "item_name": item_name,
-            "waste_date": datetime.now().strftime("%Y-%m-%d"),
-            "quantity": data.get('quantity', 1)
+            "email": data["email"],
+            "item_name": data["name"],
+            "quantity": data.get("quantity", 1),
+            "waste_date": datetime.now().strftime("%Y-%m-%d")
         })
 
-    users_collection.update_one({"email": email}, {"$pull": {"inventory": {"name": item_name}}})
-    return jsonify({"message": f"Item {reason} processed!"}), 200
+    users_collection.update_one(
+        {"email": data["email"]},
+        {"$pull": {"inventory": {"name": data["name"]}}}
+    )
 
-# --- SMART RECIPES ---
-@app.route('/suggest-recipes/<email>', methods=['GET'])
-def suggest_recipes(email):
+    return jsonify({"message": "Removed"})
+
+# ---------------- RECIPES ---------------- #
+@app.route('/suggest-recipes/<email>')
+def suggest(email):
     user = users_collection.find_one({"email": email})
-    if not user: return jsonify([]), 200
+    if not user:
+        return jsonify([])
 
-    user_diet = user.get('dietPreference', 'Veg')
-    fridge_ingredients = [item['name'].lower().strip() for item in user.get('inventory', [])]
+    fridge = [i["name"].lower() for i in user.get("inventory", [])]
 
-    query = {}
-    if user_diet == "Veg":
-        query["type"] = "Veg"
-    
-    db_recipes = list(recipes_collection.find(query, {'_id': 0}))
-    suggestions = []
+    recipes = list(recipes_collection.find({}, {"_id": 0}))
+    result = []
 
-    for recipe in db_recipes:
-        recipe_ings = [ing.lower().strip() for ing in recipe.get('ingredients', [])]
-        matches = [ing for ing in recipe_ings if any(ing in item for item in fridge_ingredients)]
-        
-        if matches:
-            suggestions.append({
-                "recipe_name": recipe.get('name'),
-                "diet_type": recipe.get('type'),
-                "matched_ingredients": matches,
-                "missing_ingredients": [ing for ing in recipe_ings if ing not in matches],
-                "sustainability_score": recipe.get('carbon_score', 5),
-                "instructions": recipe.get('instructions', []),
-                "nutrition": calculate_nutrition(recipe_ings)
+    for r in recipes:
+        ing = [i.lower() for i in r.get("ingredients", [])]
+        match = [i for i in ing if i in fridge]
+
+        if match:
+            result.append({
+                "recipe_name": r["name"],
+                "matched": match,
+                "missing": [i for i in ing if i not in match],
+                "nutrition": calculate_nutrition(ing)
             })
 
-    suggestions = sorted(suggestions, key=lambda x: len(x['matched_ingredients']), reverse=True)
-    return jsonify(suggestions[:10]), 200
+    return jsonify(result[:10])
 
-# --- FEEDBACK ---
-@app.route('/feedback', methods=['POST'])
-def save_feedback():
-    data = request.json
-    feedback_collection.insert_one({
-        "email": data.get('email'),
-        "recipe_name": data.get('recipe_name'),
-        "rating": data.get('rating'),
-        "comment": data.get('comment', ""),
-        "timestamp": datetime.now()
-    })
-    return jsonify({"message": "Feedback received!"}), 201
 
-# --- ADMIN DASHBOARD ROUTES ---
-@app.route('/admin/users', methods=['GET'])
-def get_all_users():
-    users = list(users_collection.find({}, {"password": 0, "_id": 0}))
-    return dumps(users)
-
-@app.route('/admin/post-recipe', methods=['POST'])
-def post_recipe():
-    data = request.json
-    new_recipe = {
-        "name": data.get('name'),
-        "type": data.get('type', 'Veg'),
-        "ingredients": data.get('ingredients', []),
-        "instructions": data.get('instructions', []),
-        "carbon_score": int(data.get('ecoScore', 5)),
-        "created_at": datetime.now()
-    }
-    recipes_collection.insert_one(new_recipe)
-    return jsonify({"message": "Global Recipe published!"}), 201
-
-@app.route('/admin/waste-reports', methods=['GET'])
-def get_waste_reports():
-    reports = list(waste_collection.find({}, {"_id": 0}))
-    return dumps(reports)
+# ---------------- ADMIN ---------------- #
+@app.route('/admin/users')
+def admin_get_users():
+    users = list(users_collection.find({"role": {"$ne": "admin"}}, {"_id": 0, "password": 0}))
+    return jsonify(users)
 
 @app.route('/admin/delete-user/<email>', methods=['DELETE'])
-def delete_user(email):
-    users_collection.delete_one({"email": email})
-    # Optional: Clear their waste logs too
-    # waste_collection.delete_many({"email": email})
-    return jsonify({"message": f"User {email} deleted successfully"}), 200
+def admin_delete_user(email):
+    result = users_collection.delete_one({"email": email})
+    if result.deleted_count:
+        return jsonify({"message": "User deleted successfully"}), 200
+    return jsonify({"message": "User not found"}), 404
 
-# --- ADMIN: GENERATE INDIVIDUAL REPORT (UPDATED FOR MONGODB) ---
-@app.route('/admin/generate-report/<email>', methods=['GET'])
-def generate_report(email):
-    try:
-        user_waste_logs = list(waste_collection.find({"email": email}, {"_id": 0}))
-        return jsonify(user_waste_logs), 200
-    except Exception as e:
-        print(f"Error generating report for {email}: {e}")
-        return jsonify({"message": "Internal Server Error"}), 500
+@app.route('/admin/waste-reports')
+def admin_get_waste_reports():
+    reports = list(waste_collection.find({}, {"_id": 0}))
+    return jsonify(reports)
 
+@app.route('/admin/stats')
+def admin_get_stats():
+    total_users = users_collection.count_documents({"role": {"$ne": "admin"}})
+    total_waste = waste_collection.count_documents({})
+    total_recipes = recipes_collection.count_documents({})
+    return jsonify({
+        "totalUsers": total_users,
+        "totalWasteItems": total_waste,
+        "totalRecipes": total_recipes
+    })
 
+# ---------------- RUN ---------------- #
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True)
