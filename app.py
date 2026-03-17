@@ -3,15 +3,22 @@ from flask_cors import CORS
 from pymongo import MongoClient
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from bson.json_util import dumps
 import bcrypt
+import jwt
+from functools import wraps
+import google.generativeai as genai
 
 load_dotenv() 
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'super-secret-default-key-1234'
 CORS(app)
+
+# --- Configure Gemini API ---
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # --- Database Connection ---
 try:
@@ -46,6 +53,30 @@ def is_admin(email):
 @app.route('/')
 def health_check():
     return jsonify({"status": "online"}), 200
+
+# ---------------- AUTH DECORATOR ---------------- #
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("Authorization")
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+        
+        try:
+            if token.startswith("Bearer "):
+                token = token.split(" ")[1]
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = users_collection.find_one({"email": data["email"]})
+            if not current_user:
+                return jsonify({"message": "Invalid token"}), 401
+        except jwt.ExpiredSignatureError:
+            return jsonify({"message": "Token has expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"message": "Token is invalid"}), 401
+            
+        kwargs['current_user'] = current_user
+        return f(*args, **kwargs)
+    return decorated
 
 # ---------------- AUTH ---------------- #
 @app.route('/register', methods=['POST'])
@@ -88,16 +119,23 @@ def login():
         return jsonify({"message": "User not found"}), 404
 
     if bcrypt.checkpw(data["password"].encode(), user["password"].encode()):
+        token = jwt.encode({
+            'email': user['email'],
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+        
         return jsonify({
             "name": user["name"],
             "email": user["email"],
-            "role": user.get("role", "user")
+            "role": user.get("role", "user"),
+            "token": token
         })
     
     return jsonify({"message": "Invalid password"}), 401
 
 # ---------------- PROFILE ---------------- #
 @app.route('/update-profile', methods=['POST'])
+@token_required
 def update_profile():
     data = request.json
     users_collection.update_one(
@@ -239,6 +277,24 @@ def suggest(email):
             })
 
     return jsonify(result[:10])
+
+@app.route('/generate-ai-recipe/<email>')
+@token_required
+def generate_ai_recipe(email, current_user):
+    fridge_items = [i["name"] for i in current_user.get("inventory", [])]
+    
+    if not fridge_items:
+        return jsonify({"error": "Your fridge is empty! Add items first."}), 400
+        
+    prompt = f"I am building a web app to reduce food waste. The user has these ingredients in their digital fridge: {', '.join(fridge_items)}. Create a sustainable and delicious recipe using as many of these ingredients as possible. Keep it concise. Include: Name, Match (ingredients used from the list), Missing (pantry staples I need), Instructions, and a sustainability score out of 10."
+    
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        # Parse or just send the text directly. We'll send the text directly for simplicity first.
+        return jsonify({"recipe_text": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate recipe. Check API Key. Details: {str(e)}"}), 500
 
 
 # ---------------- ADMIN ---------------- #
