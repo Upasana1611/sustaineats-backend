@@ -289,7 +289,7 @@ def suggest(email, current_user):
                 "nutrition": calculate_nutrition(ing)
             })
 
-    return jsonify(result[:10])
+    return jsonify(result[:10]) # type: ignore
 
 @app.route('/feedback', methods=['POST'])
 @token_required
@@ -336,7 +336,7 @@ def generate_ai_recipe(email, current_user):
             print(f"Model {model_name} failed: {e}")
             last_error = e
             
-    if response:
+    if response and hasattr(response, 'text'):
         return jsonify({"recipe_text": response.text})
     else:
         return jsonify({"error": f"Failed to generate recipe. Details: {str(last_error)}"}), 500
