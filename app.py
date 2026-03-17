@@ -315,20 +315,31 @@ def generate_ai_recipe(email, current_user):
         
     prompt = f"I am building a web app to reduce food waste. The user has these ingredients in their digital fridge: {', '.join(fridge_items)}. Create a sustainable and delicious recipe using as many of these ingredients as possible. Keep it concise. Include: Name, Match (ingredients used from the list), Missing (pantry staples I need), Instructions, and a sustainability score out of 10."
     
-    try:
-        # Try the newer flash model first
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro",
+        "gemini-1.0-pro",
+    ]
+    
+    response = None
+    last_error = None
+    
+    for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
-        except Exception as flash_err:
-            print(f"Flash model failed: {flash_err}. Falling back to gemini-pro.")
-            # Fallback to the classic pro model
-            model = genai.GenerativeModel("gemini-pro")
-            response = model.generate_content(prompt)
+            break
+        except Exception as e:
+            print(f"Model {model_name} failed: {e}")
+            last_error = e
             
+    if response:
         return jsonify({"recipe_text": response.text})
-    except Exception as e:
-        return jsonify({"error": f"Failed to generate recipe. Details: {str(e)}"}), 500
+    else:
+        return jsonify({"error": f"Failed to generate recipe. Details: {str(last_error)}"}), 500
 
 
 # ---------------- ADMIN ---------------- #
