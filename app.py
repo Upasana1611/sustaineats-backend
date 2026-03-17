@@ -137,28 +137,32 @@ def login():
 # ---------------- PROFILE ---------------- #
 @app.route('/update-profile', methods=['POST'])
 @token_required
-def update_profile():
+def update_profile(current_user):
     data = request.json
     users_collection.update_one(
-        {"email": data["email"]},
+        {"email": current_user["email"]},
         {"$set": data}
     )
     return jsonify({"message": "Updated"})
 
 @app.route('/profile/<email>')
-def profile(email):
+@token_required
+def profile(email, current_user):
     user = users_collection.find_one({"email": email}, {"_id": 0, "password": 0})
     return jsonify(user or {})
 
 # ---------------- INVENTORY ---------------- #
 @app.route('/inventory/<email>')
-def get_inventory(email):
+@token_required
+def get_inventory(email, current_user):
     user = users_collection.find_one({"email": email})
     return jsonify(user.get("inventory", []) if user else [])
 
 @app.route('/inventory', methods=['POST'])
-def add_inventory():
+@token_required
+def add_inventory(current_user):
     data = request.json
+    email = data.get("email") or current_user["email"]
     item = {
         "name": data["name"],
         "quantity": data["quantity"],
@@ -168,16 +172,17 @@ def add_inventory():
     }
 
     users_collection.update_one(
-        {"email": data["email"]},
+        {"email": email},
         {"$push": {"inventory": item}}
     )
 
     return jsonify({"message": "Added"})
 
 @app.route('/inventory/delete', methods=['POST'])
-def delete_item():
+@token_required
+def delete_item(current_user):
     data = request.json
-    email = data["email"]
+    email = data.get("email") or current_user["email"]
 
     if data.get("reason") == "waste":
         waste_collection.insert_one({
@@ -214,27 +219,31 @@ def delete_item():
 
 # ---------------- SHOPPING LIST & STATS ---------------- #
 @app.route('/shopping-list/<email>')
-def get_shopping_list(email):
+@token_required
+def get_shopping_list(email, current_user):
     user = users_collection.find_one({"email": email})
     return jsonify(user.get("shoppingList", []) if user else [])
 
 @app.route('/shopping-list', methods=['POST'])
-def update_shopping_list():
+@token_required
+def update_shopping_list(current_user):
     data = request.json
+    email = data.get("email") or current_user["email"]
     action = data.get("action")
     items = data.get("items", [])
     
     if action == "add":
         for item in items:
-            users_collection.update_one({"email": data["email"]}, {"$addToSet": {"shoppingList": item}})
+            users_collection.update_one({"email": email}, {"$addToSet": {"shoppingList": item}})
     elif action == "remove":
         for item in items:
-            users_collection.update_one({"email": data["email"]}, {"$pull": {"shoppingList": item}})
+            users_collection.update_one({"email": email}, {"$pull": {"shoppingList": item}})
             
     return jsonify({"message": "Shopping list updated"})
 
 @app.route('/user-stats/<email>')
-def get_user_stats(email):
+@token_required
+def get_user_stats(email, current_user):
     user = users_collection.find_one({"email": email})
     if not user:
         return jsonify({"message": "User not found"}), 404
@@ -255,7 +264,8 @@ def get_user_stats(email):
 
 # ---------------- RECIPES ---------------- #
 @app.route('/suggest-recipes/<email>')
-def suggest(email):
+@token_required
+def suggest(email, current_user):
     user = users_collection.find_one({"email": email})
     if not user:
         return jsonify([])
