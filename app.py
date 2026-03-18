@@ -383,10 +383,11 @@ def admin_get_waste_reports(current_user):
     users = list(users_collection.find({}))
     
     for u in users:
-        for item in u.get("inventory", []):
-            if item.get("expiry") and item.get("expiry") < today:
+        inventory = u.get("inventory") or []
+        for item in inventory:
+            if item.get("expiry") and item.get("expiry") <= today:
                 reports.append({
-                    "email": u.get("email", "Unknown"),
+                    "email": u.get("email", "Unknown").lower().strip(),
                     "item_name": item.get("name", "Unknown Item"),
                     "quantity": item.get("quantity", 1),
                     "waste_date": "Expired in Fridge"
@@ -407,8 +408,9 @@ def admin_get_stats(current_user):
     today = datetime.now().strftime("%Y-%m-%d")
     users = list(users_collection.find({}))
     for u in users:
-        for item in u.get("inventory", []):
-            if item.get("expiry") and item.get("expiry") < today:
+        inventory = u.get("inventory") or []
+        for item in inventory:
+            if item.get("expiry") and item.get("expiry") <= today:
                 total_waste += 1
                 
     return jsonify({
