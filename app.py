@@ -384,7 +384,7 @@ def admin_get_waste_reports(current_user):
     
     for u in users:
         for item in u.get("inventory", []):
-            if item.get("expiry") < today:
+            if item.get("expiry") and item.get("expiry") < today:
                 reports.append({
                     "email": u.get("email", "Unknown"),
                     "item_name": item.get("name", "Unknown Item"),
@@ -408,7 +408,7 @@ def admin_get_stats(current_user):
     users = list(users_collection.find({}))
     for u in users:
         for item in u.get("inventory", []):
-            if item.get("expiry") < today:
+            if item.get("expiry") and item.get("expiry") < today:
                 total_waste += 1
                 
     return jsonify({
