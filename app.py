@@ -342,7 +342,7 @@ def generate_ai_recipe(email, current_user):
     else:
         # Fallback to a mock recipe if the API key is completely invalid/expired
         # This ensures the app is always functional for demonstrations.
-        mock_rec = f"## Sustainable Fridge Feast\n\n**Match:** {', '.join(fridge_items)}\n**Missing:** Olive oil, Salt, Pepper\n\n### Instructions\n1. Sauté the {', '.join([i for i in fridge_items][:2])} in olive oil.\n2. Mix remaining ingredients and simmer for 15 minutes.\n3. Serve hot!\n\n**Sustainability Score:** 9/10 (Zero Waste!)"
+        mock_rec = f"## Sustainable Fridge Feast\n\n**Match:** {', '.join(fridge_items)}\n**Missing:** Olive oil, Salt, Pepper\n\n### Instructions\n1. Sauté the {', '.join(fridge_items[:2])} in olive oil.\n2. Mix remaining ingredients and simmer for 15 minutes.\n3. Serve hot!\n\n**Sustainability Score:** 9/10 (Zero Waste!)"
         return jsonify({"recipe_text": mock_rec})
 
 
@@ -377,6 +377,21 @@ def admin_delete_user(email, current_user):
 @admin_required
 def admin_get_waste_reports(current_user):
     reports = list(waste_collection.find({}, {"_id": 0}))
+    
+    # Auto-detect expired items currently in fridges
+    today = datetime.now().strftime("%Y-%m-%d")
+    users = list(users_collection.find({}))
+    
+    for u in users:
+        for item in u.get("inventory", []):
+            if item.get("expiry") < today:
+                reports.append({
+                    "email": u.get("email", "Unknown"),
+                    "item_name": item.get("name", "Unknown Item"),
+                    "quantity": item.get("quantity", 1),
+                    "waste_date": "Expired in Fridge"
+                })
+                
     return jsonify(reports)
 
 @app.route('/admin/stats')
@@ -384,8 +399,18 @@ def admin_get_waste_reports(current_user):
 @admin_required
 def admin_get_stats(current_user):
     total_users = users_collection.count_documents({"role": {"$ne": "admin"}})
-    total_waste = waste_collection.count_documents({})
     total_recipes = recipes_collection.count_documents({})
+    
+    total_waste = waste_collection.count_documents({})
+    
+    # Add auto-detected expired items
+    today = datetime.now().strftime("%Y-%m-%d")
+    users = list(users_collection.find({}))
+    for u in users:
+        for item in u.get("inventory", []):
+            if item.get("expiry") < today:
+                total_waste += 1
+                
     return jsonify({
         "totalUsers": total_users,
         "totalWasteItems": total_waste,
