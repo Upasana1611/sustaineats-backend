@@ -142,6 +142,10 @@ def login():
 @token_required
 def update_profile(current_user):
     data = request.json
+    # Protect identifier fields from being changed
+    data.pop('email', None)
+    data.pop('_id', None)
+    
     users_collection.update_one(
         {"email": current_user["email"]},
         {"$set": data}
@@ -151,7 +155,8 @@ def update_profile(current_user):
 @app.route('/profile/<email>')
 @token_required
 def profile(email, current_user):
-    user = users_collection.find_one({"email": email}, {"_id": 0, "password": 0})
+    email_clean = email.lower().strip()
+    user = users_collection.find_one({"email": email_clean}, {"_id": 0, "password": 0})
     return jsonify(user or {})
 
 # ---------------- INVENTORY ---------------- #
@@ -247,20 +252,21 @@ def update_shopping_list(current_user):
 @app.route('/user-stats/<email>')
 @token_required
 def get_user_stats(email, current_user):
-    user = users_collection.find_one({"email": email})
+    email_clean = email.lower().strip()
+    user = users_collection.find_one({"email": email_clean})
     if not user:
         return jsonify({"message": "User not found"}), 404
         
-    wastes = list(waste_collection.find({"email": email}))
+    wastes = list(waste_collection.find({"email": email_clean}))
     total_wasted = sum(int(w.get("quantity", 1)) for w in wastes)
-    cost_lost = total_wasted * 3.50
+    cost_lost = total_wasted * 40.0  # Consistent with admin dashboard default price
     co2_emitted = total_wasted * 2.5
     
     return jsonify({
         "ecoScore": user.get("ecoScore", 0),
         "badges": user.get("badges", []),
         "itemsSaved": user.get("itemsSaved", 0),
-        "moneyLost": f"${cost_lost:.2f}",
+        "moneyLost": f"₹{cost_lost:.2f}",
         "co2Emitted": f"{co2_emitted:.1f} kg",
         "totalWasted": total_wasted
     })
@@ -342,7 +348,7 @@ def generate_ai_recipe(email, current_user):
     else:
         # Fallback to a mock recipe if the API key is completely invalid/expired
         # This ensures the app is always functional for demonstrations.
-        mock_rec = f"## Sustainable Fridge Feast\n\n**Match:** {', '.join(fridge_items)}\n**Missing:** Olive oil, Salt, Pepper\n\n### Instructions\n1. Sauté the {', '.join(fridge_items[:2])} in olive oil.\n2. Mix remaining ingredients and simmer for 15 minutes.\n3. Serve hot!\n\n**Sustainability Score:** 9/10 (Zero Waste!)"
+        mock_rec = f"## Sustainable Fridge Feast\n\n**Match:** {', '.join(fridge_items)}\n**Missing:** Olive oil, Salt, Pepper\n\n### Instructions\n1. Sauté the {', '.join(fridge_items[:2])} in olive oil.\n2. Mix remaining ingredients and simmer for 15 minutes.\n3. Serve hot!\n\n**Sustainability Score:** 9/10 (Zero Waste!)" # type: ignore
         return jsonify({"recipe_text": mock_rec})
 
 
